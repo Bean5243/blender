@@ -784,7 +784,25 @@ static void do_weight_paint_vertex_single(
     index_mirr = vgroup_mirr = -1;
   }
 
-  if (wp->flag & VP_FLAG_VGROUP_RESTRICT) {
+  /* Check if painting should create new deform weight entries. */
+  bool restrict_to_existing = (wp->flag & VP_FLAG_VGROUP_RESTRICT) != 0;
+
+  if (wpi->do_lock_relative || wpi->do_auto_normalize) {
+    /* Without do_lock_relative only dw_rel_locked is reliable, while dw_rel_free may be fake 0. */
+    dw_rel_free = BKE_defvert_total_selected_weight(dv, wpi->defbase_tot, wpi->vgroup_unlocked);
+    dw_rel_locked = BKE_defvert_total_selected_weight(dv, wpi->defbase_tot, wpi->vgroup_locked);
+    CLAMP(dw_rel_locked, 0.0f, 1.0f);
+
+    /* Do not create entries if there is not enough free weight to paint.
+     * This logic is the same as in wpaint_undo_lock_relative and auto-normalize. */
+    if (wpi->do_auto_normalize || dw_rel_free <= 0.0f) {
+      if (dw_rel_locked >= 1.0f - VERTEX_WEIGHT_EPSILON) {
+        restrict_to_existing = true;
+      }
+    }
+  }
+
+  if (restrict_to_existing) {
     dw = BKE_defvert_find_index(dv, wpi->active.index);
   }
   else {
@@ -832,10 +850,6 @@ static void do_weight_paint_vertex_single(
 
   /* Handle weight caught up in locked defgroups for Lock Relative. */
   if (wpi->do_lock_relative) {
-    dw_rel_free = BKE_defvert_total_selected_weight(dv, wpi->defbase_tot, wpi->vgroup_unlocked);
-    dw_rel_locked = BKE_defvert_total_selected_weight(dv, wpi->defbase_tot, wpi->vgroup_locked);
-    CLAMP(dw_rel_locked, 0.0f, 1.0f);
-
     weight_cur = BKE_defvert_calc_lock_relative_weight(weight_cur, dw_rel_locked, dw_rel_free);
   }
 
@@ -1663,6 +1677,10 @@ static bool wpaint_stroke_test_start(bContext *C, wmOperator *op, const float mo
           wpd->lock_flags, wpd->vgroup_validmap, wpd->active.index) &&
       (!wpd->do_multipaint || BKE_object_defgroup_check_lock_relative_multi(
                                   defbase_tot, wpd->lock_flags, defbase_sel, defbase_tot_sel))) {
+    wpd->do_lock_relative = true;
+  }
+
+  if (wpd->do_lock_relative || (ts->auto_normalize && wpd->lock_flags && !wpd->do_multipaint)) {
     bool *unlocked = MEM_dupallocN(wpd->vgroup_validmap);
 
     if (wpd->lock_flags) {
@@ -1673,7 +1691,6 @@ static bool wpaint_stroke_test_start(bContext *C, wmOperator *op, const float mo
     }
 
     wpd->vgroup_unlocked = unlocked;
-    wpd->do_lock_relative = true;
   }
 
   if (wpd->do_multipaint && ts->auto_normalize) {
