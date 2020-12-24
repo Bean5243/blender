@@ -415,7 +415,12 @@ static float wpaint_undo_lock_relative(
   /* In auto-normalize mode, or when there is no unlocked weight,
    * compute based on locked weight. */
   if (auto_normalize || free_weight <= 0.0f) {
-    weight *= (1.0f - locked_weight);
+    if (locked_weight < 1.0f - VERTEX_WEIGHT_EPSILON) {
+      weight *= (1.0f - locked_weight);
+    }
+    else {
+      weight = 0;
+    }
   }
   else {
     /* When dealing with full unlocked weight, don't paint, as it is always displayed as 1. */
@@ -518,7 +523,7 @@ static bool do_weight_paint_normalize_all_locked(MDeformVert *dvert,
     return false;
   }
 
-  if (lock_weight >= 1.0f) {
+  if (lock_weight >= 1.0f - VERTEX_WEIGHT_EPSILON) {
     /* locked groups make it impossible to fully normalize,
      * zero out what we can and return false */
     for (i = dvert->totweight, dw = dvert->dw; i != 0; i--, dw++) {
